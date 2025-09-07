@@ -80,7 +80,6 @@ struct paw32xx_data {
     struct k_work motion_work;
     struct gpio_callback motion_cb;
     struct k_timer motion_timer; // Add timer for delayed motion checking
-    uint8_t scale_factor; // Movement scaling factor (0-100, default 100 = 100%)
 };
 
 static inline int32_t sign_extend(uint32_t value, uint8_t index) {
@@ -235,12 +234,6 @@ static void paw32xx_motion_work_handler(struct k_work *work) {
         return;
     }
 
-    // Apply scaling factor if set (default 100 = 100%)
-    if (data->scale_factor > 0 && data->scale_factor < 100) {
-        x = (x * data->scale_factor) / 100;
-        y = (y * data->scale_factor) / 100;
-    }
-
     LOG_DBG("x=%4d y=%4d", x, y);
 
     input_report_rel(data->dev, INPUT_REL_X, x, false, K_FOREVER);
@@ -322,20 +315,6 @@ int paw32xx_force_awake(const struct device *dev, bool enable) {
     return 0;
 }
 
-int paw32xx_set_scale_factor(const struct device *dev, uint8_t scale_percent) {
-    struct paw32xx_data *data = dev->data;
-    
-    if (scale_percent > 100) {
-        LOG_ERR("scale_percent out of range: %d", scale_percent);
-        return -EINVAL;
-    }
-    
-    data->scale_factor = scale_percent;
-    LOG_DBG("Scale factor set to: %d%%", scale_percent);
-    
-    return 0;
-}
-
 static int paw32xx_configure(const struct device *dev) {
     const struct paw32xx_config *cfg = dev->config;
     uint8_t val;
@@ -378,9 +357,6 @@ static int paw32xx_init(const struct device *dev) {
     }
 
     data->dev = dev;
-    
-    // Initialize default scale factor to 100% (no scaling)
-    data->scale_factor = 100;
 
     k_work_init(&data->motion_work, paw32xx_motion_work_handler);
     // Initialize the timer for delayed motion checks
