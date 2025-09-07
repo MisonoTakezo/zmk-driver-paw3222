@@ -25,4 +25,12 @@ int paw32xx_set_resolution(const struct device *dev, uint16_t res_cpi);
  */
 int paw32xx_force_awake(const struct device *dev, bool enable);
 
+/**
+ * @brief Set movement scale factor on a paw32xx device
+ *
+ * @param dev paw32xx device.
+ * @param scale_percent Movement scaling factor (0-100, where 100 = 100%, no scaling).
+ */
+int paw32xx_set_scale_factor(const struct device *dev, uint8_t scale_percent);
+
 #endif /* ZEPHYR_INCLUDE_INPUT_PAW32XX_H_ */
