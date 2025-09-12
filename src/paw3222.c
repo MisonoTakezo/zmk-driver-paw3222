@@ -23,6 +23,10 @@
 
 #include "../include/paw3222.h"
 
+#if IS_ENABLED(CONFIG_ZMK_MOUSE)
+#include <zmk/keymap.h>
+#endif
+
 LOG_MODULE_REGISTER(paw32xx, CONFIG_ZMK_LOG_LEVEL);
 
 #define DT_DRV_COMPAT pixart_paw3222
@@ -73,6 +77,16 @@ struct paw32xx_config {
     struct gpio_dt_spec power_gpio;
     int16_t res_cpi;
     bool force_awake;
+    int32_t *scroll_layers;
+    size_t scroll_layers_len;
+    int32_t *snipe_layers;
+    size_t snipe_layers_len;
+    int16_t snipe_cpi;
+    int16_t cpi_dividor;
+    int16_t snipe_cpi_dividor;
+    int16_t scroll_tick;
+    uint8_t automouse_layer;
+    uint16_t automouse_timeout_ms;
 };
 
 struct paw32xx_data {
@@ -80,7 +94,37 @@ struct paw32xx_data {
     struct k_work motion_work;
     struct gpio_callback motion_cb;
     struct k_timer motion_timer; // Add timer for delayed motion checking
+    enum paw32xx_input_mode curr_mode;
+    int16_t scroll_delta_x;
+    int16_t scroll_delta_y;
+    uint16_t curr_cpi;
 };
+
+#if IS_ENABLED(CONFIG_ZMK_MOUSE)
+static struct k_timer automouse_layer_timer;
+static bool automouse_triggered = false;
+static uint8_t current_automouse_layer = 0;
+
+static void activate_automouse_layer(const struct device *dev) {
+    const struct paw32xx_config *cfg = dev->config;
+    if (cfg->automouse_layer > 0) {
+        automouse_triggered = true;
+        current_automouse_layer = cfg->automouse_layer;
+        zmk_keymap_layer_activate(cfg->automouse_layer);
+        k_timer_start(&automouse_layer_timer, K_MSEC(cfg->automouse_timeout_ms), K_NO_WAIT);
+    }
+}
+
+static void deactivate_automouse_layer(struct k_timer *timer) {
+    automouse_triggered = false;
+    if (current_automouse_layer > 0) {
+        zmk_keymap_layer_deactivate(current_automouse_layer);
+        current_automouse_layer = 0;
+    }
+}
+
+K_TIMER_DEFINE(automouse_layer_timer, deactivate_automouse_layer, NULL);
+#endif
 
 static inline int32_t sign_extend(uint32_t value, uint8_t index) {
     __ASSERT_NO_MSG(index <= 31);
@@ -88,6 +132,38 @@ static inline int32_t sign_extend(uint32_t value, uint8_t index) {
     uint8_t shift = 31 - index;
 
     return (int32_t)(value << shift) >> shift;
+}
+
+#if IS_ENABLED(CONFIG_ZMK_MOUSE)
+static enum paw32xx_input_mode get_input_mode_for_current_layer(const struct device *dev) {
+    const struct paw32xx_config *cfg = dev->config;
+    uint8_t curr_layer = zmk_keymap_highest_layer_active();
+    
+    for (size_t i = 0; i < cfg->scroll_layers_len; i++) {
+        if (curr_layer == cfg->scroll_layers[i]) {
+            return PAW32XX_MODE_SCROLL;
+        }
+    }
+    for (size_t i = 0; i < cfg->snipe_layers_len; i++) {
+        if (curr_layer == cfg->snipe_layers[i]) {
+            return PAW32XX_MODE_SNIPE;
+        }
+    }
+    return PAW32XX_MODE_MOVE;
+}
+#else
+static enum paw32xx_input_mode get_input_mode_for_current_layer(const struct device *dev) {
+    return PAW32XX_MODE_MOVE;
+}
+#endif
+
+static int paw32xx_set_cpi_if_needed(const struct device *dev, uint16_t res_cpi) {
+    struct paw32xx_data *data = dev->data;
+    if (res_cpi != data->curr_cpi) {
+        data->curr_cpi = res_cpi;
+        return paw32xx_set_resolution(dev, res_cpi);
+    }
+    return 0;
 }
 
 static int paw32xx_read_reg(const struct device *dev, uint8_t addr, uint8_t *value) {
@@ -212,7 +288,7 @@ static void paw32xx_motion_work_handler(struct k_work *work) {
     const struct device *dev = data->dev;
     const struct paw32xx_config *cfg = dev->config;
     uint8_t val;
-    int16_t x, y;
+    int16_t raw_x, raw_y;
     int ret;
 
     ret = paw32xx_read_reg(dev, PAW32XX_MOTION, &val);
@@ -229,15 +305,78 @@ static void paw32xx_motion_work_handler(struct k_work *work) {
         }
     }
 
-    ret = paw32xx_read_xy(dev, &x, &y);
+    ret = paw32xx_read_xy(dev, &raw_x, &raw_y);
     if (ret < 0) {
         return;
     }
 
-    LOG_DBG("x=%4d y=%4d", x, y);
+    LOG_DBG("raw_x=%4d raw_y=%4d", raw_x, raw_y);
 
-    input_report_rel(data->dev, INPUT_REL_X, x, false, K_FOREVER);
-    input_report_rel(data->dev, INPUT_REL_Y, y, true, K_FOREVER);
+    // Determine input mode and configure CPI accordingly
+    enum paw32xx_input_mode input_mode = get_input_mode_for_current_layer(dev);
+    bool input_mode_changed = data->curr_mode != input_mode;
+    
+    int32_t dividor = 1;
+    switch (input_mode) {
+    case PAW32XX_MODE_MOVE:
+        paw32xx_set_cpi_if_needed(dev, cfg->res_cpi);
+        dividor = cfg->cpi_dividor;
+        break;
+    case PAW32XX_MODE_SCROLL:
+        paw32xx_set_cpi_if_needed(dev, cfg->res_cpi);
+        if (input_mode_changed) {
+            data->scroll_delta_x = 0;
+            data->scroll_delta_y = 0;
+        }
+        dividor = 1; // handled with ticks rather than dividers
+        break;
+    case PAW32XX_MODE_SNIPE:
+        paw32xx_set_cpi_if_needed(dev, cfg->snipe_cpi);
+        dividor = cfg->snipe_cpi_dividor;
+        break;
+    default:
+        return;
+    }
+
+    data->curr_mode = input_mode;
+
+#if IS_ENABLED(CONFIG_ZMK_MOUSE)
+    // Activate automouse layer if needed
+    if (input_mode == PAW32XX_MODE_MOVE &&
+        (automouse_triggered || (cfg->automouse_layer > 0 && 
+         zmk_keymap_highest_layer_active() != cfg->automouse_layer))) {
+        activate_automouse_layer(dev);
+    }
+#endif
+
+    // Apply dividor
+    int16_t x = raw_x / dividor;
+    int16_t y = raw_y / dividor;
+
+    if (x != 0 || y != 0) {
+        if (input_mode != PAW32XX_MODE_SCROLL) {
+            input_report_rel(dev, INPUT_REL_X, x, false, K_FOREVER);
+            input_report_rel(dev, INPUT_REL_Y, y, true, K_FOREVER);
+        } else {
+            // Handle scroll mode
+            data->scroll_delta_x += x;
+            data->scroll_delta_y += y;
+            
+            if (abs(data->scroll_delta_y) > cfg->scroll_tick) {
+                input_report_rel(dev, INPUT_REL_WHEEL,
+                               data->scroll_delta_y > 0 ? PAW32XX_SCROLL_Y_NEGATIVE : PAW32XX_SCROLL_Y_POSITIVE,
+                               true, K_FOREVER);
+                data->scroll_delta_x = 0;
+                data->scroll_delta_y = 0;
+            } else if (abs(data->scroll_delta_x) > cfg->scroll_tick) {
+                input_report_rel(dev, INPUT_REL_HWHEEL,
+                               data->scroll_delta_x > 0 ? PAW32XX_SCROLL_X_NEGATIVE : PAW32XX_SCROLL_X_POSITIVE,
+                               true, K_FOREVER);
+                data->scroll_delta_x = 0;
+                data->scroll_delta_y = 0;
+            }
+        }
+    }
 
     // Schedule next check after 15ms without using interrupts
     k_timer_start(&data->motion_timer, K_MSEC(15), K_NO_WAIT);
@@ -357,6 +496,10 @@ static int paw32xx_init(const struct device *dev) {
     }
 
     data->dev = dev;
+    data->curr_mode = PAW32XX_MODE_MOVE;
+    data->scroll_delta_x = 0;
+    data->scroll_delta_y = 0;
+    data->curr_cpi = cfg->res_cpi;
 
     k_work_init(&data->motion_work, paw32xx_motion_work_handler);
     // Initialize the timer for delayed motion checks
@@ -487,12 +630,25 @@ static int paw32xx_pm_action(const struct device *dev, enum pm_device_action act
     BUILD_ASSERT(IN_RANGE(DT_INST_PROP_OR(n, res_cpi, RES_MIN), RES_MIN, RES_MAX),                 \
                  "invalid res-cpi");                                                               \
                                                                                                    \
+    static int32_t scroll_layers##n[] = DT_PROP_OR(DT_DRV_INST(n), scroll_layers, {});             \
+    static int32_t snipe_layers##n[] = DT_PROP_OR(DT_DRV_INST(n), snipe_layers, {});               \
+                                                                                                   \
     static const struct paw32xx_config paw32xx_cfg_##n = {                                         \
         .spi = SPI_DT_SPEC_INST_GET(n, PAW32XX_SPI_MODE, 0),                                       \
         .irq_gpio = GPIO_DT_SPEC_INST_GET(n, irq_gpios),                                           \
         .power_gpio = GPIO_DT_SPEC_INST_GET_OR(n, power_gpios, {0}),                               \
         .res_cpi = DT_INST_PROP_OR(n, res_cpi, -1),                                                \
         .force_awake = DT_INST_PROP(n, force_awake),                                               \
+        .scroll_layers = scroll_layers##n,                                                         \
+        .scroll_layers_len = DT_PROP_LEN_OR(DT_DRV_INST(n), scroll_layers, 0),                     \
+        .snipe_layers = snipe_layers##n,                                                           \
+        .snipe_layers_len = DT_PROP_LEN_OR(DT_DRV_INST(n), snipe_layers, 0),                       \
+        .snipe_cpi = DT_INST_PROP_OR(n, snipe_cpi, DT_INST_PROP_OR(n, res_cpi, RES_MIN)),          \
+        .cpi_dividor = DT_INST_PROP_OR(n, cpi_dividor, 1),                                         \
+        .snipe_cpi_dividor = DT_INST_PROP_OR(n, snipe_cpi_dividor, 1),                             \
+        .scroll_tick = DT_INST_PROP_OR(n, scroll_tick, 20),                                        \
+        .automouse_layer = DT_INST_PROP_OR(n, automouse_layer, 0),                                 \
+        .automouse_timeout_ms = DT_INST_PROP_OR(n, automouse_timeout_ms, 600),                     \
     };                                                                                             \
                                                                                                    \
     static struct paw32xx_data paw32xx_data_##n;                                                   \

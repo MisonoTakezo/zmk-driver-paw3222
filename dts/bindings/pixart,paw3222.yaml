@@ -33,3 +33,54 @@ properties:
       Initialize the sensor in "force awake" mode. This can also be enabled or
       disabled in runtime by the application using the paw32xx_force_awake()
       API.
+
+  scroll-layers:
+    type: array
+    description: |
+      List of layer numbers where the sensor should operate in scroll mode.
+      When any of these layers are active, the sensor will report scroll
+      wheel events instead of mouse movement.
+
+  snipe-layers:
+    type: array
+    description: |
+      List of layer numbers where the sensor should operate in snipe mode.
+      When any of these layers are active, the sensor will use reduced
+      sensitivity for precise movement.
+
+  snipe-cpi:
+    type: int
+    description: |
+      CPI resolution for snipe mode. Lower values provide more precise movement.
+
+  cpi-dividor:
+    type: int
+    default: 1
+    description: |
+      Movement divider for normal mode. Higher values reduce sensitivity.
+
+  snipe-cpi-dividor:
+    type: int
+    default: 1
+    description: |
+      Movement divider for snipe mode. Higher values reduce sensitivity.
+
+  scroll-tick:
+    type: int
+    default: 20
+    description: |
+      Movement threshold for generating scroll events. Higher values require
+      more movement to trigger a scroll event.
+
+  automouse-layer:
+    type: int
+    description: |
+      Layer number to automatically activate when mouse movement is detected.
+      Set to 0 to disable automouse functionality.
+
+  automouse-timeout-ms:
+    type: int
+    default: 600
+    description: |
+      Timeout in milliseconds for deactivating the automouse layer after
+      the last mouse movement.

@@ -9,6 +9,19 @@
 #ifndef ZEPHYR_INCLUDE_INPUT_PAW32XX_H_
 #define ZEPHYR_INCLUDE_INPUT_PAW32XX_H_
 
+/* Input modes for different behaviors */
+enum paw32xx_input_mode {
+    PAW32XX_MODE_MOVE,
+    PAW32XX_MODE_SCROLL,
+    PAW32XX_MODE_SNIPE,
+};
+
+/* Scroll directions */
+#define PAW32XX_SCROLL_Y_POSITIVE  1
+#define PAW32XX_SCROLL_Y_NEGATIVE -1
+#define PAW32XX_SCROLL_X_POSITIVE  1
+#define PAW32XX_SCROLL_X_NEGATIVE -1
+
 /**
  * @brief Set resolution on a paw32xx device
  *

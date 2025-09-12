@@ -1,6 +1,54 @@
 
 menuconfig PAW3222
-    bool "PAW3222 mouse optical sensor"
-  select SPI
-    help
-      Enable PAW3222 mouse optical sensor.
+	bool "PAW3222 mouse optical sensor"
+	select SPI
+	help
+	  Enable PAW3222 mouse optical sensor.
+
+if PAW3222
+
+config PAW3222_CPI
+	int "Default CPI resolution"
+	default 800
+	range 200 3200
+	help
+	  Default CPI resolution for the PAW3222 sensor.
+
+config PAW3222_SNIPE_CPI
+	int "Snipe mode CPI resolution"
+	default 400
+	range 200 3200
+	help
+	  CPI resolution for snipe mode (precise movement).
+
+config PAW3222_CPI_DIVIDOR
+	int "Movement divider for normal mode"
+	default 1
+	range 1 10
+	help
+	  Movement divider for normal mode. Higher values reduce sensitivity.
+
+config PAW3222_SNIPE_CPI_DIVIDOR
+	int "Movement divider for snipe mode"
+	default 1
+	range 1 10
+	help
+	  Movement divider for snipe mode. Higher values reduce sensitivity.
+
+config PAW3222_SCROLL_TICK
+	int "Scroll tick threshold"
+	default 20
+	range 5 100
+	help
+	  Movement threshold for generating scroll events. Higher values require
+	  more movement to trigger a scroll event.
+
+config PAW3222_AUTOMOUSE_TIMEOUT_MS
+	int "Automouse layer timeout in milliseconds"
+	default 600
+	range 100 5000
+	help
+	  Timeout in milliseconds for deactivating the automouse layer after
+	  the last mouse movement.
+
+endif # PAW3222
