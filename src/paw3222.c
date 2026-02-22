@@ -67,7 +67,8 @@ LOG_MODULE_REGISTER(paw32xx, CONFIG_ZMK_LOG_LEVEL);
 #define RES_MIN (16 * RES_STEP)
 #define RES_MAX (127 * RES_STEP)
 
-struct paw32xx_config {
+struct paw32xx_config
+{
     struct spi_dt_spec spi;
     struct gpio_dt_spec irq_gpio;
     struct gpio_dt_spec power_gpio;
@@ -75,7 +76,8 @@ struct paw32xx_config {
     bool force_awake;
 };
 
-struct paw32xx_data {
+struct paw32xx_data
+{
     const struct device *dev;
     struct k_work motion_work;
     struct gpio_callback motion_cb;
@@ -83,7 +85,8 @@ struct paw32xx_data {
 };
 
 // Define a custom sign_extend function to avoid conflict with Zephyr's implementation
-static inline int32_t _sign_extend(uint32_t value, uint8_t index) {
+static inline int32_t _sign_extend(uint32_t value, uint8_t index)
+{
     __ASSERT_NO_MSG(index <= 31);
 
     uint8_t shift = 31 - index;
@@ -91,7 +94,8 @@ static inline int32_t _sign_extend(uint32_t value, uint8_t index) {
     return (int32_t)(value << shift) >> shift;
 }
 
-static int paw32xx_read_reg(const struct device *dev, uint8_t addr, uint8_t *value) {
+static int paw32xx_read_reg(const struct device *dev, uint8_t addr, uint8_t *value)
+{
     const struct paw32xx_config *cfg = dev->config;
     int ret;
 
@@ -124,7 +128,8 @@ static int paw32xx_read_reg(const struct device *dev, uint8_t addr, uint8_t *val
     return ret;
 }
 
-static int paw32xx_write_reg(const struct device *dev, uint8_t addr, uint8_t value) {
+static int paw32xx_write_reg(const struct device *dev, uint8_t addr, uint8_t value)
+{
     const struct paw32xx_config *cfg = dev->config;
 
     uint8_t write_buf[] = {addr | SPI_WRITE, value};
@@ -140,26 +145,30 @@ static int paw32xx_write_reg(const struct device *dev, uint8_t addr, uint8_t val
     return spi_write_dt(&cfg->spi, &tx);
 }
 
-static int paw32xx_update_reg(const struct device *dev, uint8_t addr, uint8_t mask, uint8_t value) {
+static int paw32xx_update_reg(const struct device *dev, uint8_t addr, uint8_t mask, uint8_t value)
+{
     uint8_t val;
     int ret;
 
     ret = paw32xx_read_reg(dev, addr, &val);
-    if (ret < 0) {
+    if (ret < 0)
+    {
         return ret;
     }
 
     val = (val & ~mask) | (value & mask);
 
     ret = paw32xx_write_reg(dev, addr, val);
-    if (ret < 0) {
+    if (ret < 0)
+    {
         return ret;
     }
 
     return 0;
 }
 
-static int paw32xx_read_xy(const struct device *dev, int16_t *x, int16_t *y) {
+static int paw32xx_read_xy(const struct device *dev, int16_t *x, int16_t *y)
+{
     const struct paw32xx_config *cfg = dev->config;
     int ret;
 
@@ -190,7 +199,8 @@ static int paw32xx_read_xy(const struct device *dev, int16_t *x, int16_t *y) {
     };
 
     ret = spi_transceive_dt(&cfg->spi, &tx, &rx);
-    if (ret < 0) {
+    if (ret < 0)
+    {
         return ret;
     }
 
@@ -203,12 +213,14 @@ static int paw32xx_read_xy(const struct device *dev, int16_t *x, int16_t *y) {
     return 0;
 }
 
-static void paw32xx_motion_timer_handler(struct k_timer *timer) {
+static void paw32xx_motion_timer_handler(struct k_timer *timer)
+{
     struct paw32xx_data *data = CONTAINER_OF(timer, struct paw32xx_data, motion_timer);
     k_work_submit(&data->motion_work);
 }
 
-static void paw32xx_motion_work_handler(struct k_work *work) {
+static void paw32xx_motion_work_handler(struct k_work *work)
+{
     struct paw32xx_data *data = CONTAINER_OF(work, struct paw32xx_data, motion_work);
     const struct device *dev = data->dev;
     const struct paw32xx_config *cfg = dev->config;
@@ -217,21 +229,25 @@ static void paw32xx_motion_work_handler(struct k_work *work) {
     int ret;
 
     ret = paw32xx_read_reg(dev, PAW32XX_MOTION, &val);
-    if (ret < 0) {
+    if (ret < 0)
+    {
         return;
     }
 
-    if ((val & MOTION_STATUS_MOTION) == 0x00) {
+    if ((val & MOTION_STATUS_MOTION) == 0x00)
+    {
         // No motion detected, re-enable interrupts and wait for next interrupt
         gpio_pin_interrupt_configure_dt(&cfg->irq_gpio, GPIO_INT_EDGE_TO_ACTIVE);
 
-        if (gpio_pin_get_dt(&cfg->irq_gpio) == 0) {
+        if (gpio_pin_get_dt(&cfg->irq_gpio) == 0)
+        {
             return;
         }
     }
 
     ret = paw32xx_read_xy(dev, &x, &y);
-    if (ret < 0) {
+    if (ret < 0)
+    {
         return;
     }
 
@@ -245,7 +261,8 @@ static void paw32xx_motion_work_handler(struct k_work *work) {
 }
 
 static void paw32xx_motion_handler(const struct device *gpio_dev, struct gpio_callback *cb,
-                                   uint32_t pins) {
+                                   uint32_t pins)
+{
     struct paw32xx_data *data = CONTAINER_OF(cb, struct paw32xx_data, motion_cb);
     const struct device *dev = data->dev;
     const struct paw32xx_config *cfg = dev->config;
@@ -260,11 +277,13 @@ static void paw32xx_motion_handler(const struct device *gpio_dev, struct gpio_ca
     k_work_submit(&data->motion_work);
 }
 
-int paw32xx_set_resolution(const struct device *dev, uint16_t res_cpi) {
+int paw32xx_set_resolution(const struct device *dev, uint16_t res_cpi)
+{
     uint8_t val;
     int ret;
 
-    if (!IN_RANGE(res_cpi, RES_MIN, RES_MAX)) {
+    if (!IN_RANGE(res_cpi, RES_MIN, RES_MAX))
+    {
         LOG_ERR("res_cpi out of range: %d", res_cpi);
         return -EINVAL;
     }
@@ -272,89 +291,106 @@ int paw32xx_set_resolution(const struct device *dev, uint16_t res_cpi) {
     val = res_cpi / RES_STEP;
 
     ret = paw32xx_write_reg(dev, PAW32XX_WRITE_PROTECT, WRITE_PROTECT_DISABLE);
-    if (ret < 0) {
+    if (ret < 0)
+    {
         return ret;
     }
 
     ret = paw32xx_write_reg(dev, PAW32XX_CPI_X, val);
-    if (ret < 0) {
+    if (ret < 0)
+    {
         return ret;
     }
 
     ret = paw32xx_write_reg(dev, PAW32XX_CPI_Y, val);
-    if (ret < 0) {
+    if (ret < 0)
+    {
         return ret;
     }
 
     ret = paw32xx_write_reg(dev, PAW32XX_WRITE_PROTECT, WRITE_PROTECT_ENABLE);
-    if (ret < 0) {
+    if (ret < 0)
+    {
         return ret;
     }
 
     return 0;
 }
 
-int paw32xx_force_awake(const struct device *dev, bool enable) {
+int paw32xx_force_awake(const struct device *dev, bool enable)
+{
     uint8_t val = enable ? 0 : OPERATION_MODE_SLP_MASK;
     int ret;
 
     ret = paw32xx_write_reg(dev, PAW32XX_WRITE_PROTECT, WRITE_PROTECT_DISABLE);
-    if (ret < 0) {
+    if (ret < 0)
+    {
         return ret;
     }
 
     ret = paw32xx_update_reg(dev, PAW32XX_OPERATION_MODE, OPERATION_MODE_SLP_MASK, val);
-    if (ret < 0) {
+    if (ret < 0)
+    {
         return ret;
     }
 
     ret = paw32xx_write_reg(dev, PAW32XX_WRITE_PROTECT, WRITE_PROTECT_ENABLE);
-    if (ret < 0) {
+    if (ret < 0)
+    {
         return ret;
     }
 
     return 0;
 }
 
-static int paw32xx_configure(const struct device *dev) {
+static int paw32xx_configure(const struct device *dev)
+{
     const struct paw32xx_config *cfg = dev->config;
     uint8_t val;
     int ret;
-    int retry_count = 10;
+    int retry_count = 30;
 
     // Check if the device is ready
-    while (retry_count--) {
+    while (retry_count--)
+    {
         ret = paw32xx_read_reg(dev, PAW32XX_PRODUCT_ID1, &val);
-        if (ret < 0) {
-            if (retry_count == 0) {
+        if (ret < 0)
+        {
+            if (retry_count == 0)
+            {
                 return ret;
             }
-            k_sleep(K_MSEC(100)); // Wait before retrying
+            k_sleep(K_MSEC(200)); // Wait before retrying
             continue;
         }
 
-        if (val != PRODUCT_ID_PAW32XX) {
+        if (val != PRODUCT_ID_PAW32XX)
+        {
             LOG_ERR("Invalid product id: %02x", val);
 
-            if (retry_count == 0) {
+            if (retry_count == 0)
+            {
                 return -ENODEV; // Device not ready after retries
             }
-            k_sleep(K_MSEC(100)); // Wait before retrying
+            k_sleep(K_MSEC(200)); // Wait before retrying
             continue;
         }
-        else {
+        else
+        {
             break; // Device is ready
         }
     }
 
     ret = paw32xx_update_reg(dev, PAW32XX_CONFIGURATION, CONFIGURATION_RESET, CONFIGURATION_RESET);
-    if (ret < 0) {
+    if (ret < 0)
+    {
         return ret;
     }
 
     k_sleep(K_MSEC(RESET_DELAY_MS));
 
-    if (cfg->res_cpi > 0) {
+    if (cfg->res_cpi > 0)
+    {
         paw32xx_set_resolution(dev, cfg->res_cpi);
     }
 
@@ -369,12 +405,14 @@ static int paw32xx_configure(const struct device *dev) {
     return 0;
 }
 
-static int paw32xx_init(const struct device *dev) {
+static int paw32xx_init(const struct device *dev)
+{
     const struct paw32xx_config *cfg = dev->config;
     struct paw32xx_data *data = dev->data;
     int ret;
 
-    if (!spi_is_ready_dt(&cfg->spi)) {
+    if (!spi_is_ready_dt(&cfg->spi))
+    {
         LOG_ERR("%s is not ready", cfg->spi.bus->name);
         return -ENODEV;
     }
@@ -387,20 +425,23 @@ static int paw32xx_init(const struct device *dev) {
 
 #if DT_INST_NODE_HAS_PROP(0, power_gpios)
     // Initialize power GPIO if defined
-    if (gpio_is_ready_dt(&cfg->power_gpio)) {
+    if (gpio_is_ready_dt(&cfg->power_gpio))
+    {
         // Configure as output but start with power OFF
         ret = gpio_pin_configure_dt(&cfg->power_gpio, GPIO_OUTPUT_INACTIVE);
-        if (ret != 0) {
+        if (ret != 0)
+        {
             LOG_ERR("Power pin configuration failed: %d", ret);
             return ret;
         }
 
-        // Wait 0.01 seconds before turning on power
-        k_sleep(K_MSEC(10));
+        // Wait 0.5 seconds for boost converter stabilization
+        k_sleep(K_MSEC(500));
 
         // Now turn on power
         ret = gpio_pin_set_dt(&cfg->power_gpio, 1);
-        if (ret != 0) {
+        if (ret != 0)
+        {
             LOG_ERR("Power pin set failed: %d", ret);
             return ret;
         }
@@ -410,13 +451,15 @@ static int paw32xx_init(const struct device *dev) {
     }
 #endif
 
-    if (!gpio_is_ready_dt(&cfg->irq_gpio)) {
+    if (!gpio_is_ready_dt(&cfg->irq_gpio))
+    {
         LOG_ERR("%s is not ready", cfg->irq_gpio.port->name);
         return -ENODEV;
     }
 
     ret = gpio_pin_configure_dt(&cfg->irq_gpio, GPIO_INPUT);
-    if (ret != 0) {
+    if (ret != 0)
+    {
         LOG_ERR("Motion pin configuration failed: %d", ret);
         return ret;
     }
@@ -424,25 +467,29 @@ static int paw32xx_init(const struct device *dev) {
     gpio_init_callback(&data->motion_cb, paw32xx_motion_handler, BIT(cfg->irq_gpio.pin));
 
     ret = gpio_add_callback_dt(&cfg->irq_gpio, &data->motion_cb);
-    if (ret < 0) {
+    if (ret < 0)
+    {
         LOG_ERR("Could not set motion callback: %d", ret);
         return ret;
     }
 
     ret = paw32xx_configure(dev);
-    if (ret != 0) {
+    if (ret != 0)
+    {
         LOG_ERR("Device configuration failed: %d", ret);
         return ret;
     }
 
     ret = gpio_pin_interrupt_configure_dt(&cfg->irq_gpio, GPIO_INT_EDGE_TO_ACTIVE);
-    if (ret != 0) {
+    if (ret != 0)
+    {
         LOG_ERR("Motion interrupt configuration failed: %d", ret);
         return ret;
     }
 
     ret = pm_device_runtime_enable(dev);
-    if (ret < 0) {
+    if (ret < 0)
+    {
         LOG_ERR("Failed to enable runtime power management: %d", ret);
         return ret;
     }
@@ -451,37 +498,44 @@ static int paw32xx_init(const struct device *dev) {
 }
 
 #ifdef CONFIG_PM_DEVICE
-static int paw32xx_pm_action(const struct device *dev, enum pm_device_action action) {
+static int paw32xx_pm_action(const struct device *dev, enum pm_device_action action)
+{
     const struct paw32xx_config *cfg = dev->config;
     int ret;
     uint8_t val;
 
-    switch (action) {
+    switch (action)
+    {
     case PM_DEVICE_ACTION_SUSPEND:
         // Disable IRQ interrupt
         ret = gpio_pin_interrupt_configure_dt(&cfg->irq_gpio, GPIO_INT_DISABLE);
-        if (ret < 0) {
+        if (ret < 0)
+        {
             LOG_ERR("Failed to disable IRQ interrupt: %d", ret);
             return ret;
         }
 
         // Disconnect IRQ GPIO
         ret = gpio_pin_configure_dt(&cfg->irq_gpio, GPIO_DISCONNECTED);
-        if (ret < 0) {
+        if (ret < 0)
+        {
             LOG_ERR("Failed to disconnect IRQ GPIO: %d", ret);
             return ret;
         }
 
         val = CONFIGURATION_PD_ENH;
         ret = paw32xx_update_reg(dev, PAW32XX_CONFIGURATION, CONFIGURATION_PD_ENH, val);
-        if (ret < 0) {
+        if (ret < 0)
+        {
             return ret;
         }
 
 #if DT_INST_NODE_HAS_PROP(0, power_gpios)
-        if (gpio_is_ready_dt(&cfg->power_gpio)) {
+        if (gpio_is_ready_dt(&cfg->power_gpio))
+        {
             ret = gpio_pin_configure_dt(&cfg->power_gpio, GPIO_DISCONNECTED);
-            if (ret < 0) {
+            if (ret < 0)
+            {
                 LOG_ERR("Failed to disconnect power: %d", ret);
                 return ret;
             }
@@ -491,9 +545,11 @@ static int paw32xx_pm_action(const struct device *dev, enum pm_device_action act
 
     case PM_DEVICE_ACTION_RESUME:
 #if DT_INST_NODE_HAS_PROP(0, power_gpios)
-        if (gpio_is_ready_dt(&cfg->power_gpio)) {
+        if (gpio_is_ready_dt(&cfg->power_gpio))
+        {
             ret = gpio_pin_configure_dt(&cfg->power_gpio, GPIO_OUTPUT_ACTIVE);
-            if (ret < 0) {
+            if (ret < 0)
+            {
                 LOG_ERR("Failed to enable power: %d", ret);
                 return ret;
             }
@@ -504,20 +560,23 @@ static int paw32xx_pm_action(const struct device *dev, enum pm_device_action act
 
         val = 0;
         ret = paw32xx_update_reg(dev, PAW32XX_CONFIGURATION, CONFIGURATION_PD_ENH, val);
-        if (ret < 0) {
+        if (ret < 0)
+        {
             return ret;
         }
 
         // Reconfigure IRQ GPIO as input
         ret = gpio_pin_configure_dt(&cfg->irq_gpio, GPIO_INPUT);
-        if (ret < 0) {
+        if (ret < 0)
+        {
             LOG_ERR("Failed to configure IRQ GPIO: %d", ret);
             return ret;
         }
 
         // Re-enable IRQ interrupt
         ret = gpio_pin_interrupt_configure_dt(&cfg->irq_gpio, GPIO_INT_EDGE_TO_ACTIVE);
-        if (ret < 0) {
+        if (ret < 0)
+        {
             LOG_ERR("Failed to enable IRQ interrupt: %d", ret);
             return ret;
         }
@@ -531,26 +590,26 @@ static int paw32xx_pm_action(const struct device *dev, enum pm_device_action act
 }
 #endif
 
-#define PAW32XX_SPI_MODE                                                                           \
+#define PAW32XX_SPI_MODE \
     (SPI_OP_MODE_MASTER | SPI_WORD_SET(8) | SPI_MODE_CPOL | SPI_MODE_CPHA | SPI_TRANSFER_MSB)
 
-#define PAW32XX_INIT(n)                                                                            \
-    BUILD_ASSERT(IN_RANGE(DT_INST_PROP_OR(n, res_cpi, RES_MIN), RES_MIN, RES_MAX),                 \
-                 "invalid res-cpi");                                                               \
-                                                                                                   \
-    static const struct paw32xx_config paw32xx_cfg_##n = {                                         \
-        .spi = SPI_DT_SPEC_INST_GET(n, PAW32XX_SPI_MODE, 0),                                       \
-        .irq_gpio = GPIO_DT_SPEC_INST_GET(n, irq_gpios),                                           \
-        .power_gpio = GPIO_DT_SPEC_INST_GET_OR(n, power_gpios, {0}),                               \
-        .res_cpi = DT_INST_PROP_OR(n, res_cpi, -1),                                                \
-        .force_awake = DT_INST_PROP(n, force_awake),                                               \
-    };                                                                                             \
-                                                                                                   \
-    static struct paw32xx_data paw32xx_data_##n;                                                   \
-                                                                                                   \
-    PM_DEVICE_DT_INST_DEFINE(n, paw32xx_pm_action);                                                \
-                                                                                                   \
-    DEVICE_DT_INST_DEFINE(n, paw32xx_init, PM_DEVICE_DT_INST_GET(n), &paw32xx_data_##n,            \
+#define PAW32XX_INIT(n)                                                                 \
+    BUILD_ASSERT(IN_RANGE(DT_INST_PROP_OR(n, res_cpi, RES_MIN), RES_MIN, RES_MAX),      \
+                 "invalid res-cpi");                                                    \
+                                                                                        \
+    static const struct paw32xx_config paw32xx_cfg_##n = {                              \
+        .spi = SPI_DT_SPEC_INST_GET(n, PAW32XX_SPI_MODE, 0),                            \
+        .irq_gpio = GPIO_DT_SPEC_INST_GET(n, irq_gpios),                                \
+        .power_gpio = GPIO_DT_SPEC_INST_GET_OR(n, power_gpios, {0}),                    \
+        .res_cpi = DT_INST_PROP_OR(n, res_cpi, -1),                                     \
+        .force_awake = DT_INST_PROP(n, force_awake),                                    \
+    };                                                                                  \
+                                                                                        \
+    static struct paw32xx_data paw32xx_data_##n;                                        \
+                                                                                        \
+    PM_DEVICE_DT_INST_DEFINE(n, paw32xx_pm_action);                                     \
+                                                                                        \
+    DEVICE_DT_INST_DEFINE(n, paw32xx_init, PM_DEVICE_DT_INST_GET(n), &paw32xx_data_##n, \
                           &paw32xx_cfg_##n, POST_KERNEL, CONFIG_INPUT_INIT_PRIORITY, NULL);
 
 DT_INST_FOREACH_STATUS_OKAY(PAW32XX_INIT)
